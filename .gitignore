@@ -9,7 +9,7 @@ db.sqlite3
 
 # Env file
 .env
-
+.gitignore
 # VS Code / IDE
 .vscode/
 .idea/
