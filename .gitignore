@@ -1,0 +1,20 @@
+# Environnement virtuel
+env/
+*.pyc
+__pycache__/
+
+# Django
+*.sqlite3
+db.sqlite3
+
+# Env file
+.env
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Fichiers temporaires
+*.log
+*.bak
+*.tmp
