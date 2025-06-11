@@ -593,11 +593,6 @@ def generate_rapport_pdf(data):
         card_data.append([Paragraph(f"- Date de signature", styles['FieldValue'])])
         card_data.append([Paragraph(f"  {signature_date}", styles['FieldValue'])])
         
-        if not is_technicien:
-            # Section supplémentaire pour le client
-            card_data.append([Spacer(1, 10)])
-            card_data.append([Paragraph("<b>Efficer</b>", styles['FieldLabel'])])
-        
         return card_data
         # Section Technicien et Client
     etape3 = data.get('Etape 3', {})
