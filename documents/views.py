@@ -1,86 +1,123 @@
 import json
+import logging
+import io
+import base64
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import Document
-from .function.email_sender import send_rapport_email
-from .function.html_pdf_generator import generate_rapport_pdf
+from django.views.decorators.http import require_POST
+from django.core.mail import EmailMessage
+from django.template.loader import render_to_string
+from django.conf import settings
+from weasyprint import HTML
+from .models import Document, Spam
+from session.models import Session
+from django.contrib.staticfiles.storage import staticfiles_storage
+from .utils import generate_pdf_from_data
 
-@csrf_exempt
-def process_rapport(request):
-    if request.method == 'POST':
+logger = logging.getLogger(__name__)
+
+@csrf_exempt  
+@require_POST
+def receive_rapport(request):
+    try:
+        # Récupérer le fichier JSON envoyé dans FormData
+        json_file = request.FILES.get('file')
+        if not json_file:
+            return JsonResponse({'error': 'No file provided'}, status=400)
+        
+        # Lire le contenu du fichier
         try:
-            # Initialisation
-            data = {}
-            json_file = request.FILES.get('file')
-            form_data = request.POST.get('json_data')
+            file_content = json_file.read().decode('utf-8')
+            data = json.loads(file_content)
+        except UnicodeDecodeError:
+            return JsonResponse({'error': 'File encoding error, UTF-8 expected'}, status=400)
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON file'}, status=400)
+        
+        rapport = data.get('rapport_entretien')
+        if not rapport:
+            return JsonResponse({'error': 'Missing rapport_entretien'}, status=400)
 
-            # 1. Récupération des données JSON
-            if json_file:  # Si fichier JSON envoyé via FILES
-                try:
-                    data = json.load(json_file)
-                except json.JSONDecodeError:
-                    return JsonResponse({'error': 'Fichier JSON invalide'}, status=400)
-            elif form_data:  # Si JSON envoyé comme champ form-data
-                try:
-                    data = json.loads(form_data)
-                except json.JSONDecodeError:
-                    return JsonResponse({'error': 'Champ JSON invalide'}, status=400)
-            elif request.body:  # Si JSON brut dans le corps
-                try:
-                    data = json.loads(request.body.decode('utf-8'))
-                except json.JSONDecodeError:
-                    return JsonResponse({'error': 'Corps JSON invalide'}, status=400)
-            else:
-                return JsonResponse({'error': 'Aucune donnée JSON fournie'}, status=400)
+        session_name = rapport.get('SessionId')
+        candidat_email = rapport.get('Candidat')
 
-            # 2. Validation des champs obligatoires
-            email = data.get('email')
-            pseudo = data.get('pseudo')
-            if not email or not pseudo:
-                return JsonResponse({'error': 'Email et Pseudo sont obligatoires'}, status=400)
+        if not candidat_email:
+            return JsonResponse({'error': 'Missing Candidat'}, status=400)
 
-            # 3. Préparation des données pour la création du Document
-            document_data = {
-                'email': email,
-                'pseudo': pseudo,
-                'json_data': data
-            }
+        # Nettoyer les placeholders éventuels
+        if session_name.startswith('{') and session_name.endswith('}'):
+            session_name = None
+        if candidat_email.startswith('{') and candidat_email.endswith('}'):
+            candidat_email = None
 
-            # 4. Traitement des signatures (méthode corrigée)
-            signature_fields = {
-                'signature_client': 'signature_client',
-                'signature_client2': 'signature_client2',
-                'signature_technicien': 'signature_technicien',
-                'signature_intervenant': 'signature_intervenant',
-                'signature_intervenant2': 'signature_intervenant2',
-                'signature_exploitant': 'signature_exploitant'
-            }
+        # Vérifier si la session existe dans la table Session
+        session = None
+        if session_name:
+            try:
+                session = Session.objects.get(session=session_name)
+            except Session.DoesNotExist:
+                pass
 
-            for field_name, model_field in signature_fields.items():
-                uploaded_file = request.FILES.get(field_name)
-                if uploaded_file:
-                    document_data[model_field] = uploaded_file
-
-            # 5. Création et sauvegarde du document
-            document = Document.objects.create(**document_data)
-
-            # 6. Génération du PDF (passez l'instance document complète)
-            pdf_buffer = generate_rapport_pdf(data, document)
-
-            # 7. Envoi par email
-            send_rapport_email(
-                recipient=email,
-                pseudo=pseudo,
-                pdf_data=pdf_buffer.getvalue()
+        if session:
+            # Stocker dans Document
+            doc = Document.objects.create(
+                Candidat=candidat_email,
+                Session=session_name,
+                json_data=rapport
             )
 
-            return JsonResponse({
-                'status': 'success',
-                'document_id': document.id,
-                'message': 'Rapport et signatures enregistrés avec succès'
-            }, status=201)
+            # --- Envoi de l'e-mail à l'adresse de la session ---
+            try:
+                pdf_bytes = generate_pdf_from_data(rapport, request.build_absolute_uri('/'))
+                subject = f"Rapport de découverte pour {session_name}"
+                body = "Veuillez trouver ci-joint le rapport de découverte."
+                email = EmailMessage(
+                    subject,
+                    body,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [session.email],  # Destinataire : l'email associé à la session
+                )
+                filename = f"rapport_{candidat_email}_{session_name}.pdf"
+                email.attach(filename, pdf_bytes, 'application/pdf')
+                email.send()
+                logger.info(f"E-mail envoyé pour le document {doc.id} à {session.email}")
+            except Exception as e:
+                logger.error(f"Erreur lors de l'envoi de l'e-mail pour le document {doc.id}: {e}")
 
-        except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
+            return JsonResponse({'status': 'ok', 'type': 'document', 'id': doc.id})
+        else:
+            # Stocker dans Spam
+            spam = Spam.objects.create(
+                Candidat=candidat_email,
+                Session=session_name or '',
+                json_data=rapport,
+                raison='Session invalide ou manquante'
+            )
 
-    return JsonResponse({'error': 'Méthode non autorisée'}, status=405)
+            # --- Envoi de l'e-mail à l'adresse par défaut ---
+            try:
+                pdf_bytes = generate_pdf_from_data(rapport, request.build_absolute_uri('/'))
+                subject = f"Rapport Découverte (spam) - session {session_name or 'inconnue'}"
+                body = "Un rapport a été classé en spam car la session n'existe pas. Veuillez trouver le PDF ci-joint."
+                email = EmailMessage(
+                    subject,
+                    body,
+                    settings.DEFAULT_FROM_EMAIL,
+                    ['joulnar@i-oasis.com'],
+                )
+                filename = f"spam_{candidat_email}_{session_name or 'no_session'}.pdf"
+                email.attach(filename, pdf_bytes, 'application/pdf')
+                email.send()
+                logger.info(f"E-mail de spam envoyé pour l'entrée {spam.id} à webmaster@i-oasis.fr")
+            except Exception as e:
+                logger.error(f"Erreur lors de l'envoi de l'e-mail de spam pour {spam.id}: {e}")
+
+            return JsonResponse({'status': 'ok', 'type': 'spam', 'id': spam.id})
+
+    except Exception as e:
+        logger.exception("Erreur dans receive_rapport")
+        return JsonResponse({'error': str(e)}, status=500)

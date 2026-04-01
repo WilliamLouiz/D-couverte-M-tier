@@ -21,3 +21,4 @@ db.sqlite3
 
 # le fichier de token
 token.txt
+cle_back_dm.pem

@@ -14,12 +14,22 @@ from dotenv import load_dotenv
 from pathlib import Path
 from pathlib import Path
 from decouple import config
+from django.utils.translation import gettext_lazy as _
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+LANGUAGES = [
+    ('en', _('English')),
+    ('fr', _('Français')),
+    ('ar', _('العربية')),
+    ('zh-hans', _('中文')),       # chinois simplifié
+    ('es', _('Español')),
+    ('de', _('Deutsch')),
+]
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -30,7 +40,8 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
+# ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
+ALLOWED_HOSTS=['*']
 
 # Email configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -52,7 +63,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'documents',  # Custom app for document management
+    'documents',  
+    'session',
     'weasyprint',
 ]
 
@@ -140,6 +152,7 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')] 
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+LOGO_PATH = os.path.join(BASE_DIR, 'static', 'logo.jpg') 
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -148,13 +161,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 JAZZMIN_SETTINGS = {
     # title of the window (Will default to current_admin_site.site_title if absent or None)
-    "site_title": "Admin Fluide Frigorigène",
+    "site_title": "Admin Découverte Métier",
 
     # Title on the login screen (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_header": "Admin Fluide Frigorigène",
+    "site_header": "Admin Découverte Métier",
 
     # Title on the brand (19 chars max) (defaults to current_admin_site.site_header if absent or None)
-    "site_brand": "Admin Fluide Frigorigène",
+    "site_brand": "Découverte Métier",
 
     # Logo to use for your site, must be present in static files, used for brand on top left
     # "site_logo": "books/img/logo.png",
@@ -172,7 +185,7 @@ JAZZMIN_SETTINGS = {
     "site_icon": None,
 
     # Welcome text on the login screen
-    "welcome_sign": "Binvenue sur l'admin Fluide Frigorigène",
+    "welcome_sign": "Binvenue sur l'admin Découverte Métier",
 
     # Copyright on the footer
     "copyright": "Acme Library Ltd",
